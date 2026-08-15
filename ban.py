@@ -1,9 +1,9 @@
 import requests
 import re
 import asyncio
-from telethon import TelegramClient, events
-from telethon.tl.functions.channels import EditBannedRequest
-from telethon.tl.types import ChatBannedRights
+from telethon import TelegramClient
+from telethon.tl.functions.channels import EditBannedRequest, SetChatPermissionsRequest
+from telethon.tl.types import ChatBannedRights, ChatPermissions
 import time
 
 # ------------------ ЗАГРУЗКА КОНФИГА ------------------
@@ -72,7 +72,27 @@ async def main():
     # Получаем объект чата
     chat = await client.get_entity(cid)
 
-    # Получаем всех участников (это может занять время)
+    # --- Шаг 4: Запрещаем всем (кроме админов) отправлять сообщения ---
+    # Устанавливаем права: разрешено только админам
+    permissions = ChatPermissions(
+        send_messages=False,
+        send_media=False,
+        send_stickers=False,
+        send_gifs=False,
+        send_games=False,
+        send_inline=False,
+        send_polls=False,
+        change_info=False,
+        invite_users=False,
+        pin_messages=False
+    )
+    try:
+        await client(SetChatPermissionsRequest(chat, permissions))
+        print("🔒 Права на отправку сообщений отключены для всех (кроме админов)")
+    except Exception as e:
+        print(f"⚠️ Не удалось установить права: {e}")
+
+    # Получаем всех участников
     participants = await client.get_participants(chat, aggressive=True)
     total = len(participants)
     print(f"👥 Найдено участников: {total}")
@@ -102,22 +122,17 @@ async def main():
         try:
             # Исключаем (бан)
             await client(EditBannedRequest(chat, user_id, ban_rights))
-            # Удаляем системное сообщение о кике (последнее сообщение от чата?)
-            # Проще удалить все сообщения от служебного аккаунта? Но мы удалим последнее сообщение в чате,
-            # которое может быть системным. Но это не точно. Лучше удалить все сообщения от сервиса?
-            # В телеграме нельзя удалить системное сообщение через обычный метод, но можно через delete_messages.
-            # Мы будем удалять последние сообщения, которые являются системными? Это сложно.
-            # Вместо этого можно не удалять системные сообщения, а удалить своё уведомление, если мы его отправляем.
-            # Но по заданию: "после каждого исключения удаляет сообщение об том что он исключил"
-            # Вероятно, имеется в виду, что мы сами отправляем сообщение "Пользователь X исключён" и потом удаляем его.
-            # Сделаем так: отправим сообщение, потом удалим его.
-            # Однако в задании сказано "удаляет сообщение об том что он исключил" – возможно, это системное сообщение.
-            # Попробуем удалить последнее сообщение в чате (если оно системное), но надёжнее – удалить все сообщения от бота?
-            # Оставим как есть – мы просто не отправляем никаких сообщений.
-            # Если нужно удалить системное, то можно через get_history и удалить последнее, но это сложно.
-            # Для упрощения я пропущу удаление, но добавлю комментарий.
-            # Если очень нужно, можно реализовать через client.get_messages(chat, limit=1) и удалить.
-            pass
+            print(f"✅ Исключён {user_id}")
+
+            # Удаляем последнее сообщение в чате (системное уведомление о бане)
+            try:
+                last_msg = await client.get_messages(chat, limit=1)
+                if last_msg:
+                    await client.delete_messages(chat, [last_msg[0].id])
+                    print(f"🗑️ Удалено системное сообщение о бане {user_id}")
+            except Exception as e:
+                print(f"⚠️ Не удалось удалить сообщение: {e}")
+
         except Exception as e:
             print(f"❌ Ошибка при кике {user_id}: {e}")
             continue
